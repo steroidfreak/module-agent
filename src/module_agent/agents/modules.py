@@ -8,105 +8,112 @@ from module_agent.core.models import AgentMessage
 
 
 @dataclass(slots=True)
-class UploadModuleAgent(SandboxedAgent):
-    """Collects upload-related instructions (files/images) from command text."""
+class TypeScriptServiceGeneratorAgent(SandboxedAgent):
+    """Generates deployable TypeScript service scaffolds for configured sequences."""
 
     def handle(self, message: AgentMessage, workspace: Path) -> AgentMessage:
-        command = str(message.payload.get("command", ""))
-        has_upload_intent = any(
-            token in command.lower() for token in ("upload", "file", "image")
-        )
-        upload_summary = (
-            "Detected upload intent for files/images."
-            if has_upload_intent
-            else "No explicit upload intent found; module ready for manual file selection."
-        )
-        output = workspace / "upload.txt"
-        output.write_text(upload_summary)
+        sequences = message.payload.get("sequences", [])
+        services: list[dict[str, str]] = []
+        for index, sequence in enumerate(sequences, start=1):
+            sequence_name = str(sequence["name"])
+            app_kind = str(sequence["app_kind"])
+            model_provider = str(sequence["model_provider"])
+            service_dir = workspace / f"sequence_{index}_{sequence_name.replace(' ', '_')}"
+            service_dir.mkdir(parents=True, exist_ok=True)
+
+            package_json = """{
+  \"name\": \"module-sequence-service\",
+  \"version\": \"1.0.0\",
+  \"private\": true,
+  \"scripts\": {
+    \"start\": \"ts-node src/service.ts\"
+  },
+  \"dependencies\": {
+    \"dotenv\": \"^16.4.5\"
+  },
+  \"devDependencies\": {
+    \"ts-node\": \"^10.9.2\",
+    \"typescript\": \"^5.6.3\"
+  }
+}
+"""
+            service_ts = f"""import 'dotenv/config';
+
+type SequencePayload = Record<string, unknown>;
+
+const config = {{
+  sequence: '{sequence_name}',
+  appKind: '{app_kind}',
+  modelProvider: '{model_provider}',
+  modelEndpoint: process.env.{sequence['env_key']},
+}};
+
+export function runSequence(input: SequencePayload): SequencePayload {{
+  return {{
+    ...input,
+    sequence: config.sequence,
+    appKind: config.appKind,
+    modelProvider: config.modelProvider,
+    modelEndpointConfigured: Boolean(config.modelEndpoint),
+  }};
+}}
+
+if (require.main === module) {{
+  const result = runSequence({{ status: 'started' }});
+  console.log(JSON.stringify(result, null, 2));
+}}
+"""
+            dockerfile = """FROM node:20-alpine
+WORKDIR /app
+COPY package.json ./
+RUN npm install
+COPY src ./src
+CMD ["npm", "run", "start"]
+"""
+
+            (service_dir / "package.json").write_text(package_json)
+            src_dir = service_dir / "src"
+            src_dir.mkdir(exist_ok=True)
+            (src_dir / "service.ts").write_text(service_ts)
+            (service_dir / "Dockerfile").write_text(dockerfile)
+
+            services.append(
+                {
+                    "sequence": sequence_name,
+                    "directory": str(service_dir),
+                    "app_kind": app_kind,
+                    "model_provider": model_provider,
+                }
+            )
+
+        output = workspace / "typescript_services.txt"
+        output.write_text("\n".join(service["directory"] for service in services))
         return AgentMessage(
             sender=self.name,
-            payload={
-                **message.payload,
-                "upload": {
-                    "enabled": True,
-                    "summary": upload_summary,
-                },
-            },
+            payload={**message.payload, "services": services},
             artifacts=[*message.artifacts, output],
         )
 
 
 @dataclass(slots=True)
-class DataProcessingModuleAgent(SandboxedAgent):
-    """Builds a simple processing plan from current payload context."""
+class SequenceExecutionAgent(SandboxedAgent):
+    """Executes a configured sequence in run mode and forwards output."""
+
+    sequence_name: str
+    app_kind: str
 
     def handle(self, message: AgentMessage, workspace: Path) -> AgentMessage:
-        command = str(message.payload.get("command", ""))
-        plan = (
-            "Extract text, normalize metadata, and summarize content"
-            if "summar" in command.lower() or "analy" in command.lower()
-            else "Run standard cleanup and transformation pipeline"
-        )
-        output = workspace / "processing_plan.txt"
-        output.write_text(plan)
-        return AgentMessage(
-            sender=self.name,
-            payload={
-                **message.payload,
-                "processing": {
-                    "enabled": True,
-                    "plan": plan,
-                },
-            },
-            artifacts=[*message.artifacts, output],
-        )
-
-
-@dataclass(slots=True)
-class ExportModuleAgent(SandboxedAgent):
-    """Chooses output channel (PDF/presentation) based on command text."""
-
-    def handle(self, message: AgentMessage, workspace: Path) -> AgentMessage:
-        command = str(message.payload.get("command", "")).lower()
-        export_format = "presentation" if any(
-            token in command for token in ("presentation", "slides", "ppt")
-        ) else "pdf"
-        output = workspace / "export.txt"
-        output.write_text(export_format)
-        return AgentMessage(
-            sender=self.name,
-            payload={
-                **message.payload,
-                "export": {
-                    "enabled": True,
-                    "format": export_format,
-                },
-            },
-            artifacts=[*message.artifacts, output],
-        )
-
-
-@dataclass(slots=True)
-class SandboxWindowAgent(SandboxedAgent):
-    """Represents one large sandbox window containing multiple module agents."""
-
-    module_agent_names: list[str]
-
-    def handle(self, message: AgentMessage, workspace: Path) -> AgentMessage:
-        layout = {
-            "container": "big-sandbox-window",
-            "module_agents": self.module_agent_names,
+        previous = message.payload.get("sequence_output", message.payload.get("command", ""))
+        sequence_output = {
+            "sequence": self.sequence_name,
+            "app_kind": self.app_kind,
+            "input": previous,
+            "result": f"{self.sequence_name} completed",
         }
-        output = workspace / "sandbox_window.txt"
-        output.write_text(
-            "Big sandbox window with module agents: "
-            + ", ".join(self.module_agent_names)
-        )
+        output_file = workspace / f"{self.sequence_name.replace(' ', '_')}_run.json"
+        output_file.write_text(str(sequence_output))
         return AgentMessage(
             sender=self.name,
-            payload={
-                **message.payload,
-                "sandbox_window": layout,
-            },
-            artifacts=[*message.artifacts, output],
+            payload={**message.payload, "sequence_output": sequence_output},
+            artifacts=[*message.artifacts, output_file],
         )
