@@ -85,3 +85,28 @@ class ExportModuleAgent(SandboxedAgent):
             artifacts=[*message.artifacts, output],
         )
 
+
+@dataclass(slots=True)
+class SandboxWindowAgent(SandboxedAgent):
+    """Represents one large sandbox window containing multiple module agents."""
+
+    module_agent_names: list[str]
+
+    def handle(self, message: AgentMessage, workspace: Path) -> AgentMessage:
+        layout = {
+            "container": "big-sandbox-window",
+            "module_agents": self.module_agent_names,
+        }
+        output = workspace / "sandbox_window.txt"
+        output.write_text(
+            "Big sandbox window with module agents: "
+            + ", ".join(self.module_agent_names)
+        )
+        return AgentMessage(
+            sender=self.name,
+            payload={
+                **message.payload,
+                "sandbox_window": layout,
+            },
+            artifacts=[*message.artifacts, output],
+        )

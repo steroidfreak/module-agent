@@ -26,4 +26,10 @@ def test_setup_assistant_builds_multi_module_chain() -> None:
     assert result.payload["upload"]["enabled"] is True
     assert result.payload["processing"]["enabled"] is True
     assert result.payload["export"]["format"] == "pdf"
-    assert len(result.artifacts) == 5
+    assert result.payload["sandbox_window"]["container"] == "big-sandbox-window"
+    assert result.payload["sandbox_window"]["module_agents"] == [
+        "upload-agent",
+        "processing-agent",
+        "export-agent",
+    ]
+    assert len(result.artifacts) == 6

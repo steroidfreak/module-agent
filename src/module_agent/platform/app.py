@@ -6,6 +6,7 @@ from module_agent.agents.examples import IntentAgent, RoutingAgent
 from module_agent.agents.modules import (
     DataProcessingModuleAgent,
     ExportModuleAgent,
+    SandboxWindowAgent,
     UploadModuleAgent,
 )
 from module_agent.core.contracts import ModuleAgent
@@ -98,10 +99,20 @@ def build_from_setup(
     chain: list[ModuleAgent] = [
         IntentAgent(name="intent-agent", sandbox=sandbox, llm=llm),
     ]
+    enabled_module_agent_names: list[str] = []
     for key in module_keys:
         agent = registry.get(key)
         if agent is not None:
             chain.append(agent)
+            enabled_module_agent_names.append(agent.name)
+
+    chain.append(
+        SandboxWindowAgent(
+            name="sandbox-window-agent",
+            sandbox=sandbox,
+            module_agent_names=enabled_module_agent_names,
+        )
+    )
     chain.append(RoutingAgent(name="routing-agent", sandbox=sandbox))
 
     voice = StubVoiceInput(command_text=command_text)
