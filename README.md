@@ -49,6 +49,28 @@ module_agent/
 - Use `LocalLLMClient` for fully local inference or `SecureAPIClient` for centrally managed, authenticated model access.
 - Keep orchestration layer unchanged while swapping providers.
 
+
+## Module agent layout (big sandbox window)
+
+The runtime now models your requested layout explicitly:
+
+- One **big sandbox window** (container)
+- Multiple module agents inside it (e.g. `upload-agent`, `processing-agent`, `export-agent`)
+
+```text
++------------------------------------------------------+
+| BIG SANDBOX WINDOW                                   |
+|  +---------------+   +---------------+               |
+|  | module agent1 |   | module agent2 |               |
+|  +---------------+   +---------------+               |
+|         ...               +---------------+          |
+|                           | module agentN |          |
+|                           +---------------+          |
++------------------------------------------------------+
+```
+
+`build_from_setup(...)` adds a `SandboxWindowAgent` that stores this container + module list into the payload under `sandbox_window`.
+
 ## Run
 
 ```bash
